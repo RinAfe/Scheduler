@@ -3,20 +3,27 @@
 Scheduler::Scheduler() : stop_flag(false), worker_thread(&Scheduler::workerFunction, this) {}
 
 Scheduler::~Scheduler() {
+
 	stop_flag.store(true);
-	condition.notify_all();
+
+	{
+		std::lock_guard<std::mutex> lock(queue_mutex);
+		condition.notify_all();
+	}
 	
-	try
-	{
-		if (worker_thread.joinable())
+	if (worker_thread.joinable()) {
+		try {
 			worker_thread.join();
-	}
-	catch (const std::exception& e)
-	{
-		std::cerr << "Error join(): " << e.what() << std::endl;
-	}
-	catch (...) {
-		std::cerr << "Error not join(): " << std::endl;
+		}
+		catch (const std::system_error& e) {
+			std::cerr << "std::system_error: " << e.what() << std::endl;
+		}
+		catch (const std::exception& e) {
+			std::cerr << "std::exception: " << e.what() << std::endl;
+		}
+		catch (...) {
+			std::cerr << "Unknown std::exception" << std::endl;
+		}
 	}
 
 }
@@ -35,7 +42,7 @@ void Scheduler::scheduleAt(std::chrono::steady_clock::time_point time,
 	}
 
 	ScheduledTask new_task;
-	new_task.time = time;  // Уже вычислено!
+	new_task.time = time;  // пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ!
 	new_task.task = std::move(task);
 
 	{
@@ -46,36 +53,38 @@ void Scheduler::scheduleAt(std::chrono::steady_clock::time_point time,
 	condition.notify_one();
 }
 
-void Scheduler::workerFunction() {
+void Scheduler::workerFunction()
+{
+	using namespace std::chrono;
+
 	while (!stop_flag.load()) {
 		std::unique_lock<std::mutex> lock(queue_mutex);
 
-		condition.wait(lock, [this]() {
-			return stop_flag.load() || !tasks.empty();
-			});
-
-		if (stop_flag.load()) return;
-
-		const ScheduledTask& next_task = tasks.top();
-		auto now = std::chrono::steady_clock::now();
-
-		if (next_task.time <= now) {
-			ScheduledTask task_to_execute = std::move(const_cast<ScheduledTask&>(tasks.top()));
-			tasks.pop();
-			lock.unlock();
-
-			try {
-				task_to_execute.task();
-			}
-			catch (const std::exception& e) {
-				std::cerr << "Scheduler task error: " << e.what() << std::endl;
-			}
-			catch (...) {
-				std::cerr << "Scheduler unknown task error" << std::endl;
-			}
+		if (tasks.empty()) {
+			condition.wait(lock);
+		} else {
+			condition.wait_until(lock, tasks.top().time);
 		}
-		else {
-			condition.wait_until(lock, next_task.time);
+
+		if (tasks.empty()) {
+			continue;
+		}
+
+		if (steady_clock::now() < tasks.top().time) {
+			continue;
+		}
+
+		const auto [_, task] = tasks.top();
+		tasks.pop();
+
+		lock.unlock();
+
+		try {
+			task();
+		} catch (const std::exception &e) {
+			std::cerr << "Scheduler task error: " << e.what() << std::endl;
+		} catch (...) {
+			std::cerr << "Scheduler unknown task error" << std::endl;
 		}
 	}
 }
@@ -85,16 +94,6 @@ void Scheduler::stop() {
 	if (stop_flag.compare_exchange_strong(except, true)) {
 		condition.notify_all();
 	}
-}
-
-void Scheduler::wait() {
-	stop();
-
-	std::call_once(join_once_flag, [this]() {
-		if (worker_thread.joinable()) {
-			worker_thread.join();
-		}
-		});
 }
 
 bool Scheduler::empty() const {

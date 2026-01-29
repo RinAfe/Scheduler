@@ -44,7 +44,6 @@ public:
     void scheduleAt(std::chrono::steady_clock::time_point time, std::function<void()> task);
 
     void stop();
-    void wait();
     
     bool empty() const;
 
