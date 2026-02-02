@@ -2,12 +2,11 @@
 
 Scheduler::Scheduler() : stop_flag(false), worker_thread(&Scheduler::workerFunction, this) {}
 
-Scheduler::~Scheduler() {
-
-	stop_flag.store(true);
+Scheduler::~Scheduler() noexcept {
 
 	{
 		std::lock_guard<std::mutex> lock(queue_mutex);
+		stop_flag.store(true);
 		condition.notify_all();
 	}
 	
@@ -25,7 +24,6 @@ Scheduler::~Scheduler() {
 			std::cerr << "Unknown std::exception" << std::endl;
 		}
 	}
-
 }
 
 void Scheduler::scheduleAfter(std::chrono::milliseconds delay, std::function<void()> task) {
