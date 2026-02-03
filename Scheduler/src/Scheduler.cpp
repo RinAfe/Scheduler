@@ -7,23 +7,11 @@ Scheduler::~Scheduler() noexcept {
 	{
 		std::lock_guard<std::mutex> lock(queue_mutex);
 		stop_flag.store(true);
-		condition.notify_all();
 	}
-	
-	if (worker_thread.joinable()) {
-		try {
-			worker_thread.join();
-		}
-		catch (const std::system_error& e) {
-			std::cerr << "std::system_error: " << e.what() << std::endl;
-		}
-		catch (const std::exception& e) {
-			std::cerr << "std::exception: " << e.what() << std::endl;
-		}
-		catch (...) {
-			std::cerr << "Unknown std::exception" << std::endl;
-		}
-	}
+	condition.notify_all();
+
+	if (worker_thread.joinable())
+		worker_thread.join();
 }
 
 void Scheduler::scheduleAfter(std::chrono::milliseconds delay, std::function<void()> task) {
